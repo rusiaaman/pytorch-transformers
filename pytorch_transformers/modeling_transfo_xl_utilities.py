@@ -51,7 +51,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
 
         self.out_layers = nn.ModuleList()
         self.out_projs = nn.ParameterList()
-
+        self.lookup_table = None
+        self.out_biases = nn.ParameterList()
         if div_val == 1:
             for i in range(len(self.cutoffs)):
                 if d_proj != d_embed:
@@ -61,7 +62,10 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                 else:
                     self.out_projs.append(None)
 
-            self.out_layers.append(nn.Linear(d_embed, n_token))
+                l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i+1]
+                self.out_biases.append(nn.Parameter(torch.FloatTensor(r_idx-l_idx)))
+
+            self.lookup_table = nn.Linear(d_embed, n_token,bias=False)
         else:
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i+1]
@@ -112,7 +116,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
 
         if self.n_clusters == 0:
             logit = self._compute_logit(hidden, self.out_layers[0].weight,
-                                        self.out_layers[0].bias, self.out_projs[0])
+                                    self.out_layers[0].bias, self.out_projs[0])
             if labels is not None:
                 out = -F.log_softmax(logit, dim=-1) \
                         .gather(1, labels.unsqueeze(1)).squeeze(1)
@@ -124,8 +128,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             for i in range(len(self.cutoffs)):
                 if self.div_val == 1:
                     l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
-                    weight_i = self.out_layers[0].weight[l_idx:r_idx]
-                    bias_i = self.out_layers[0].bias[l_idx:r_idx]
+                    weight_i = self.lookup_table.weight[l_idx:r_idx]
+                    bias_i = self.out_biases[i]
                 else:
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
@@ -218,8 +222,8 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             for i in range(len(self.cutoffs)):
                 if self.div_val == 1:
                     l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
-                    weight_i = self.out_layers[0].weight[l_idx:r_idx]
-                    bias_i = self.out_layers[0].bias[l_idx:r_idx]
+                    weight_i = self.lookup_table.weight[l_idx:r_idx]
+                    bias_i = self.out_biases[i]
                 else:
                     weight_i = self.out_layers[i].weight
                     bias_i = self.out_layers[i].bias
